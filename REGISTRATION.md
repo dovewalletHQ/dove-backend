@@ -10,7 +10,7 @@ This guide provides the essential API information needed to implement the Dove a
 
 ### **📋 User Journey:**
 ```
-1. Email Registration → 2. OTP Verification & Account Creation → 3. Profile Setup → 4. Wallet Creation
+1. Email Registration → 2. OTP Verification & Account Creation (Password + Passcode) → 3. Profile Setup → 4. Wallet Creation
 ```
 
 ### **📊 API Endpoints Summary:**
@@ -64,7 +64,7 @@ POST /api/v1/kyc/create_nuban      - Create virtual bank account
 ### **Step 2: OTP Verification & Account Creation**
 **Endpoint:** `POST /api/v1/auth/verify-otp`
 
-**Purpose:** Verify OTP and create complete user account
+**Purpose:** Verify OTP and create complete user account with security credentials
 
 **Request:**
 ```json
@@ -72,7 +72,8 @@ POST /api/v1/kyc/create_nuban      - Create virtual bank account
   "email": "user@example.com",
   "otp": "123456",
   "password": "securePassword123",
-  "username": "johnDoe"
+  "username": "johnDoe",
+  "passcode": "123456"
 }
 ```
 
@@ -94,8 +95,9 @@ POST /api/v1/kyc/create_nuban      - Create virtual bank account
 **Notes:**
 - This endpoint creates the user account AND returns authentication token
 - Store the `access_token` securely for subsequent API calls
-- Password is hashed automatically by the backend
+- Both password and passcode are hashed automatically by the backend
 - User status is set to "ACTIVE" after successful verification
+- Passcode is a 6-digit security code separate from the login password
 
 ---
 
@@ -103,6 +105,8 @@ POST /api/v1/kyc/create_nuban      - Create virtual bank account
 **Endpoint:** `PUT /api/v1/kyc/address`
 
 **Purpose:** Update user profile with address information
+
+**⚠️ IMPORTANT:** This endpoint automatically creates a virtual bank account
 
 **Headers Required:**
 ```
@@ -139,13 +143,15 @@ Content-Type: application/json
 - This step is optional but recommended
 - All address fields are optional
 - User cache is automatically updated after successful update
+- **AUTOMATIC NUBAN CREATION:** Completing this step immediately creates a virtual bank account
+- User is upgraded to KYC Level_2 and Account Tier_2
 
 ---
 
 ### **Step 4: Virtual Account Creation**
 **Endpoint:** `POST /api/v1/kyc/create_nuban`
 
-**Purpose:** Create virtual bank account for the user
+**Purpose:** Create virtual bank account for the user (Alternative to Step 3)
 
 **Headers Required:**
 ```
@@ -190,6 +196,8 @@ Content-Type: application/json
 - Account number can be used to receive payments
 - Address information is required for account creation
 - Process may take a few seconds due to external API call
+- **USE CASE:** Use this endpoint if you skipped Step 3 but want to create a virtual account
+- **EITHER/OR:** Users can either do Step 3 (automatic) OR Step 4 (manual), not both
 
 ---
 
@@ -200,6 +208,11 @@ Content-Type: application/json
 - **Expiration:** 60 minutes (3600 seconds)
 - **Storage:** Store securely in device keychain/secure storage
 - **Usage:** Include in `Authorization` header for protected endpoints
+
+### **Credential Management:**
+- **Password:** 8+ characters for login authentication
+- **Passcode:** 6-digit security code (set during registration)
+- **Transaction PIN:** 4-digit code for financial operations (set later by user)
 
 ### **Token Format:**
 ```
@@ -218,9 +231,9 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ### **Registration States:**
 ```
 1. Email Submitted → PENDING (OTP sent)
-2. OTP Verified → ACTIVE (account created)
-3. Profile Updated → ACTIVE (optional)
-4. Wallet Created → ACTIVE (financial setup complete)
+2. OTP Verified → ACTIVE (account created with password + passcode)
+3. Profile Updated → ACTIVE (optional - auto-creates wallet)
+4. Manual Wallet Created → ACTIVE (alternative financial setup)
 ```
 
 ### **Account Levels:**
@@ -241,7 +254,8 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 **Validation Errors:**
 - **Invalid Email:** Show proper email format message
-- **Weak Password:** Display password requirements
+- **Weak Password:** Display password requirements (8+ characters)
+- **Invalid Passcode:** Show passcode format error (must be 6 digits)
 - **Invalid OTP:** Clear OTP input and show error
 - **Expired OTP:** Show resend option
 
@@ -324,6 +338,7 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 ### **Validation Requirements:**
 - **Email:** Valid email format
 - **Password:** Minimum 8 characters (backend enforced)
+- **Passcode:** Exactly 6 digits (numeric only)
 - **Username:** 3-20 characters, alphanumeric + underscore
 - **OTP:** Exactly 6 digits
 
@@ -353,8 +368,9 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 ### **During Development:**
 - [ ] Test all error scenarios
 - [ ] Implement proper loading states
-- [ ] Add input validation
+- [ ] Add input validation for all fields (email, password, passcode, username)
 - [ ] Test network timeout handling
+- [ ] Understand address/NUBAN coupling for user flow design
 
 ### **Before Release:**
 - [ ] Test with production API
@@ -378,4 +394,26 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 
 ---
 
-This guide provides all the API information needed to implement the registration flow. The backend handles all complex business logic, security, and integrations - focus on creating a smooth user experience! 🚀
+## **🔗 Address-NUBAN Coupling Guide**
+
+### **Two Paths for Virtual Account Creation:**
+
+**Path A: Automatic (Recommended)**
+```
+Step 3: PUT /kyc/address → Address Updated + NUBAN Created Automatically
+```
+
+**Path B: Manual**
+```
+Skip Step 3 → Step 4: POST /kyc/create_nuban → NUBAN Created with Address in Payload
+```
+
+### **Important Frontend Considerations:**
+- **Cannot separate address and NUBAN:** If user updates address, NUBAN is created immediately
+- **Show clear messaging:** Inform users that providing address will create their bank account
+- **Either/or choice:** Design UI to show user can either do automatic (address) or manual (direct NUBAN)
+- **No reversal:** Once NUBAN is created via address update, it cannot be undone
+
+---
+
+This guide provides all the API information needed to implement the registration flow with enhanced security (password + passcode) and clear virtual account creation options. The backend handles all complex business logic, security, and integrations - focus on creating a smooth user experience! 🚀
