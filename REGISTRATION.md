@@ -10,15 +10,17 @@ This guide provides the essential API information needed to implement the Dove a
 
 ### **📋 User Journey:**
 ```
-1. Email Registration → 2. OTP Verification & Account Creation (Password + Passcode) → 3. Profile Setup → 4. Wallet Creation
+1. Email Registration → 2. OTP Verification & Account Creation (Password + Passcode) → 3. Phone Verification → 4. Complete Profile → 5. Create Wallet
 ```
 
 ### **📊 API Endpoints Summary:**
 ```
-POST /api/v1/auth/register          - Send OTP to email
-POST /api/v1/auth/verify-otp        - Verify OTP & create account  
-PUT  /api/v1/kyc/address           - Update user profile (optional)
-POST /api/v1/kyc/create_nuban      - Create virtual bank account
+POST /api/v1/auth/register               - Send OTP to email
+POST /api/v1/auth/verify-otp             - Verify OTP & create account  
+POST /api/v1/auth/send-phone-otp         - Send SMS OTP to phone
+POST /api/v1/auth/verify-phone-otp       - Verify phone number
+POST /api/v1/user/update-profile         - Complete profile with all info
+POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile data)
 ```
 
 ---
@@ -101,12 +103,83 @@ POST /api/v1/kyc/create_nuban      - Create virtual bank account
 
 ---
 
-### **Step 3: Profile Setup (Optional)**
-**Endpoint:** `PUT /api/v1/kyc/address`
+### **Step 3: Phone Number Verification**
+**Endpoint:** `POST /api/v1/auth/send-phone-otp`
 
-**Purpose:** Update user profile with address information
+**Purpose:** Send SMS OTP verification code to user's phone number
 
-**⚠️ IMPORTANT:** This endpoint automatically creates a virtual bank account
+**Request:**
+```json
+{
+  "phone_number": "+2348123456789"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Phone verification code sent successfully",
+  "responseCode": "200",
+  "data": {
+    "phone_number": "+2348123456789",
+    "otp": "123456"  // Only in development environment
+  }
+}
+```
+
+**Error Responses:**
+- **400:** `{"success": false, "message": "Invalid phone number format", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to send verification code", "responseCode": "500"}`
+
+**Notes:**
+- Phone number must be in international format (+CountryCodeNumber)
+- OTP expires after 5 minutes
+- SMS integration ready (currently logs OTP in development)
+
+---
+
+### **Phone OTP Verification**
+**Endpoint:** `POST /api/v1/auth/verify-phone-otp`
+
+**Purpose:** Verify SMS OTP and confirm phone number
+
+**Request:**
+```json
+{
+  "phone_number": "+2348123456789",
+  "otp": "123456"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Phone verification successful",
+  "responseCode": "200",
+  "data": {
+    "phone_number": "+2348123456789",
+    "verified": true
+  }
+}
+```
+
+**Error Responses:**
+- **400:** `{"success": false, "message": "Invalid or expired verification code", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Invalid verification code", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to verify phone code", "responseCode": "500"}`
+
+**Notes:**
+- OTP is single-use and deleted after verification
+- Phone number must match the one used in send-phone-otp
+
+---
+
+### **Step 4: Complete Profile**
+**Endpoint:** `POST /api/v1/user/update-profile`
+
+**Purpose:** Complete user profile with all information needed for wallet creation
 
 **Headers Required:**
 ```
@@ -117,12 +190,16 @@ Content-Type: application/json
 **Request:**
 ```json
 {
+  "first_name": "John",
+  "middle_name": "William",
+  "last_name": "Doe",
+  "phone": "+2348123456789",
+  "gender": "male",
+  "date_of_birth": "1990-01-15",
+  "bvn": "12345678901",
   "address_line_1": "123 Main Street",
-  "address_line_2": "Apt 4B",
   "city": "Lagos",
-  "state": "Lagos",
-  "zip": "100001",
-  "country_name": "Nigeria"
+  "state": "Lagos"
 }
 ```
 
@@ -131,27 +208,32 @@ Content-Type: application/json
 {
   "success": true,
   "message": "Profile updated successfully",
-  "responseCode": "200"
+  "responseCode": "200",
+  "data": {
+    "id": "user_id_string"
+  }
 }
 ```
 
 **Error Responses:**
 - **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
-- **400:** `{"success": false, "message": "Invalid address data", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Invalid date format. Use YYYY-MM-DD", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to update profile", "responseCode": "500"}`
 
 **Notes:**
-- This step is optional but recommended
-- All address fields are optional
-- User cache is automatically updated after successful update
-- **AUTOMATIC NUBAN CREATION:** Completing this step immediately creates a virtual bank account
-- User is upgraded to KYC Level_2 and Account Tier_2
+- All fields are required for wallet creation
+- BVN is encrypted before storage
+- Phone number is saved in both `user.phone` and `user.kyc.phone_2`
+- Date format must be YYYY-MM-DD
+- Country is automatically set to Nigeria
+- Profile must be completed before wallet creation
 
 ---
 
-### **Step 4: Virtual Account Creation**
+### **Step 5: Create Wallet**
 **Endpoint:** `POST /api/v1/kyc/create_nuban`
 
-**Purpose:** Create virtual bank account for the user (Alternative to Step 3)
+**Purpose:** Create virtual bank account using stored profile information
 
 **Headers Required:**
 ```
@@ -161,14 +243,7 @@ Content-Type: application/json
 
 **Request:**
 ```json
-{
-  "address": {
-    "address_line_1": "123 Main Street",
-    "city": "Lagos",
-    "state": "Lagos",
-    "country_name": "Nigeria"
-  }
-}
+{}
 ```
 
 **Success Response (200):**
@@ -179,8 +254,8 @@ Content-Type: application/json
   "responseCode": "200",
   "data": {
     "account_number": "2234567890",
-    "account_name": "John Doe",
-    "bank_name": "9PSB",
+    "account_name": "John William Doe",
+    "bank_name": "9 PAYMENT SERVICE BANK",
     "customer_id": "CUST123456"
   }
 }
@@ -188,16 +263,17 @@ Content-Type: application/json
 
 **Error Responses:**
 - **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
-- **400:** `{"success": false, "message": "Address information required", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Please complete your profile first before creating a wallet", "responseCode": "400"}`
 - **502:** `{"success": false, "message": "Banking service unavailable", "responseCode": "502"}`
 
 **Notes:**
-- This creates a real virtual bank account via 9PSB
+- Uses profile information stored in Step 4 to create wallet
+- No additional data required in request body
+- User must complete profile (Step 4) before wallet creation
+- Creates real virtual bank account via 9PSB API
 - Account number can be used to receive payments
-- Address information is required for account creation
 - Process may take a few seconds due to external API call
-- **USE CASE:** Use this endpoint if you skipped Step 3 but want to create a virtual account
-- **EITHER/OR:** Users can either do Step 3 (automatic) OR Step 4 (manual), not both
+- BVN and address from profile are used for 9PSB requirements
 
 ---
 
@@ -232,8 +308,9 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 1. Email Submitted → PENDING (OTP sent)
 2. OTP Verified → ACTIVE (account created with password + passcode)
-3. Profile Updated → ACTIVE (optional - auto-creates wallet)
-4. Manual Wallet Created → ACTIVE (alternative financial setup)
+3. Phone Verified → ACTIVE (phone number confirmed)
+4. Profile Completed → ACTIVE (all info stored, ready for wallet)
+5. Wallet Created → ACTIVE (full financial access)
 ```
 
 ### **Account Levels:**
@@ -340,7 +417,11 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 - **Password:** Minimum 8 characters (backend enforced)
 - **Passcode:** Exactly 6 digits (numeric only)
 - **Username:** 3-20 characters, alphanumeric + underscore
-- **OTP:** Exactly 6 digits
+- **OTP:** Exactly 6 digits (email and SMS)
+- **Phone Number:** International format (+CountryCodeNumber)
+- **BVN:** Exactly 11 digits (numeric only)
+- **Gender:** "male" or "female"
+- **Date of Birth:** YYYY-MM-DD format
 
 ---
 
@@ -368,9 +449,12 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 ### **During Development:**
 - [ ] Test all error scenarios
 - [ ] Implement proper loading states
-- [ ] Add input validation for all fields (email, password, passcode, username)
+- [ ] Add input validation for all fields (email, password, passcode, username, phone, BVN, names, dates)
 - [ ] Test network timeout handling
-- [ ] Understand address/NUBAN coupling for user flow design
+- [ ] Test phone number formatting and validation
+- [ ] Implement BVN input validation (11 digits)
+- [ ] Implement date picker for date of birth
+- [ ] Understand profile completion requirement for wallet creation
 
 ### **Before Release:**
 - [ ] Test with production API
@@ -394,25 +478,23 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 
 ---
 
-## **🔗 Address-NUBAN Coupling Guide**
+## **🔗 Profile-Wallet Creation Guide**
 
-### **Two Paths for Virtual Account Creation:**
+### **Wallet Creation Process:**
 
-**Path A: Automatic (Recommended)**
+**Single Path (Simplified)**
 ```
-Step 3: PUT /kyc/address → Address Updated + NUBAN Created Automatically
-```
-
-**Path B: Manual**
-```
-Skip Step 3 → Step 4: POST /kyc/create_nuban → NUBAN Created with Address in Payload
+Step 4: POST /user/update-profile → Complete Profile (All Info Stored)
+Step 5: POST /kyc/create_nuban → Wallet Created (Uses Stored Profile Data)
 ```
 
 ### **Important Frontend Considerations:**
-- **Cannot separate address and NUBAN:** If user updates address, NUBAN is created immediately
-- **Show clear messaging:** Inform users that providing address will create their bank account
-- **Either/or choice:** Design UI to show user can either do automatic (address) or manual (direct NUBAN)
-- **No reversal:** Once NUBAN is created via address update, it cannot be undone
+- **Profile completion required:** User must complete Step 4 before wallet creation
+- **All fields required:** BVN, personal info, and address all needed for 9PSB
+- **Clear progression:** Show users what step they're on in the registration flow
+- **Validation feedback:** Provide immediate feedback on BVN format, date format, etc.
+- **Secure BVN handling:** BVN is encrypted before storage for security
+- **One-time wallet creation:** Once wallet is created, user has full access
 
 ---
 
