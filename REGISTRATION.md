@@ -1,19 +1,19 @@
-# 📱 **Dove Mobile App Registration API Guide - Frontend Developers**
+# Dove Mobile App Registration API Guide - Frontend Developers
 
-## **🎯 Overview for Frontend Developers**
+## Overview for Frontend Developers
 
 This guide provides the essential API information needed to implement the Dove app registration flow in React Native. No code examples - just the API specifications, data flow, and integration requirements.
 
 ---
 
-## **🔥 Registration Flow Overview**
+## Registration Flow Overview
 
-### **📋 User Journey:**
+### User Journey:
 ```
 1. Email Registration → 2. OTP Verification & Account Creation (Password + Passcode) → 3. Phone Verification → 4. Complete Profile → 5. Create Wallet
 ```
 
-### **📊 API Endpoints Summary:**
+### API Endpoints Summary:
 ```
 POST /api/v1/auth/register               - Send OTP to email
 POST /api/v1/auth/verify-otp             - Verify OTP & create account  
@@ -25,9 +25,9 @@ POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile da
 
 ---
 
-## **📡 API Endpoints Documentation**
+## API Endpoints Documentation
 
-### **Step 1: Email Registration**
+### ### Step 1: Email Registration
 **Endpoint:** `POST /api/v1/auth/register`
 
 **Purpose:** Send OTP verification code to user's email
@@ -63,7 +63,7 @@ POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile da
 
 ---
 
-### **Step 2: OTP Verification & Account Creation**
+### ### Step 2: OTP Verification & Account Creation
 **Endpoint:** `POST /api/v1/auth/verify-otp`
 
 **Purpose:** Verify OTP and create complete user account with security credentials
@@ -103,7 +103,7 @@ POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile da
 
 ---
 
-### **Step 3: Phone Number Verification**
+### ### Step 3: Phone Number Verification
 **Endpoint:** `POST /api/v1/auth/send-phone-otp`
 
 **Purpose:** Send SMS OTP verification code to user's phone number
@@ -176,7 +176,7 @@ POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile da
 
 ---
 
-### **Step 4: Complete Profile**
+### ### Step 4: Complete Profile
 **Endpoint:** `POST /api/v1/user/update-profile`
 
 **Purpose:** Complete user profile with all information needed for wallet creation
@@ -230,7 +230,7 @@ Content-Type: application/json
 
 ---
 
-### **Step 5: Create Wallet**
+### ### Step 5: Create Wallet
 **Endpoint:** `POST /api/v1/kyc/create_nuban`
 
 **Purpose:** Create virtual bank account using stored profile information
@@ -277,7 +277,7 @@ Content-Type: application/json
 
 ---
 
-## **🔐 Authentication & Security**
+## Authentication & Security
 
 ### **Token Management:**
 - **Token Type:** JWT Bearer token
@@ -302,7 +302,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-## **📊 User Account States**
+## User Account States
 
 ### **Registration States:**
 ```
@@ -320,7 +320,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-## **🚨 Error Handling Guide**
+## Error Handling Guide
 
 ### **Common Error Scenarios:**
 
@@ -354,7 +354,7 @@ All error responses follow this structure:
 
 ---
 
-## **⏱️ Timing & Performance**
+## Timing & Performance
 
 ### **Expected Response Times:**
 - **Email Registration:** 1-3 seconds
@@ -369,7 +369,7 @@ All error responses follow this structure:
 
 ---
 
-## **🔄 Additional Authentication Endpoints**
+## Additional Authentication Endpoints
 
 ### **Password Reset Flow:**
 
@@ -399,7 +399,7 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 
 ---
 
-## **📱 Mobile App Considerations**
+## Mobile App Considerations
 
 ### **Data Storage:**
 - Store access token securely (Keychain/Keystore)
@@ -425,7 +425,7 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 
 ---
 
-## **🌍 Environment Configuration**
+## Environment Configuration
 
 ### **API Base URLs:**
 - **Development:** `http://localhost:8000`
@@ -438,7 +438,7 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 
 ---
 
-## **📋 Integration Checklist**
+## Integration Checklist
 
 ### **Before Development:**
 - [ ] Confirm API base URL for your environment
@@ -464,7 +464,7 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 
 ---
 
-## **🛠️ Development vs Production**
+## Development vs Production
 
 ### **Development Features:**
 - OTP visible in API response for testing
@@ -478,7 +478,7 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 
 ---
 
-## **🔗 Profile-Wallet Creation Guide**
+## Profile-Wallet Creation Guide
 
 ### **Wallet Creation Process:**
 
@@ -498,4 +498,4 @@ Step 5: POST /kyc/create_nuban → Wallet Created (Uses Stored Profile Data)
 
 ---
 
-This guide provides all the API information needed to implement the registration flow with enhanced security (password + passcode) and clear virtual account creation options. The backend handles all complex business logic, security, and integrations - focus on creating a smooth user experience! 🚀
+This guide provides all the API information needed to implement the registration flow with enhanced security (password + passcode) and clear virtual account creation options. The backend handles all complex business logic, security, and integrations - focus on creating a smooth user experience!
