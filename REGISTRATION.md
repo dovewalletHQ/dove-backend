@@ -10,32 +10,50 @@ This guide provides the essential API information needed to implement the Dove a
 
 ### User Journey:
 ```
-1. Email Registration → 2. OTP Verification & Account Creation (Password + Passcode) → 3. Phone Verification → 4. Complete Profile → 5. Create Wallet
+1. Email + Password Registration → 2. OTP Verification & Account Creation → 3. Set Passcode → 4. Identity Verification (BVN + DOB) → 5. Phone Number Collection → 6. Set Username → 7. Set Transaction PIN → 8. Complete Profile → 9. Create Wallet
 ```
 
 ### API Endpoints Summary:
 ```
-POST /api/v1/auth/register               - Send OTP to email
-POST /api/v1/auth/verify-otp             - Verify OTP & create account  
-POST /api/v1/auth/send-phone-otp         - Send SMS OTP to phone
-POST /api/v1/auth/verify-phone-otp       - Verify phone number
+POST /api/v1/auth/register               - Send 5-digit OTP to email (with password)
+POST /api/v1/auth/verify-otp             - Verify OTP & create account with email/password
+POST /api/v1/auth/set-passcode           - Set 6-digit passcode
+POST /api/v1/auth/identity-verification  - Verify identity with BVN + date of birth
+POST /api/v1/auth/set-phone-number       - Set phone number (no verification required)
+POST /api/v1/auth/set-username           - Set unique username
+POST /api/v1/auth/set-transaction-pin    - Set 4-digit transaction PIN
 POST /api/v1/user/update-profile         - Complete profile with all info
 POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile data)
 ```
+w
+### **Flow Separation:**
+
+**Authentication Flow** (Email → Password → Verify → Create Account → Passcode):
+- Steps 1-3: Basic account creation with minimal data
+- User gets authenticated access token after Step 2
+
+**Identity Verification Flow** (BVN → DOB → Phone → Username → PIN):
+- Steps 4-7: Progressive data collection while authenticated
+- All steps require authentication token from Step 2
+
+**Profile & Wallet Flow** (Complete Profile → Create Wallet):
+- Steps 8-9: Final profile completion and financial account setup
+- Unchanged from previous implementation
 
 ---
 
 ## API Endpoints Documentation
 
-### ### Step 1: Email Registration
+### Step 1: Email + Password Registration
 **Endpoint:** `POST /api/v1/auth/register`
 
-**Purpose:** Send OTP verification code to user's email
+**Purpose:** Send 5-digit OTP verification code to user's email (password required)
 
 **Request:**
 ```json
 {
-  "email": "user@example.com"
+  "email": "user@example.com",
+  "password": "securePassword123"
 }
 ```
 
@@ -47,7 +65,7 @@ POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile da
   "responseCode": "200",
   "data": {
     "email": "user@example.com",
-    "otp": "123456"  // Only in development environment
+    "otp": "12345"  // 5-digit OTP, only in development environment
   }
 }
 ```
@@ -58,24 +76,23 @@ POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile da
 
 **Notes:**
 - Email is automatically converted to lowercase
+- Password is stored securely with the OTP for account creation
+- OTP is now 5 digits instead of 6
 - OTP expires after 5 minutes (configurable)
 - OTP is only returned in development mode for testing
 
 ---
 
-### ### Step 2: OTP Verification & Account Creation
+### Step 2: OTP Verification & Account Creation
 **Endpoint:** `POST /api/v1/auth/verify-otp`
 
-**Purpose:** Verify OTP and create complete user account with security credentials
+**Purpose:** Verify 5-digit OTP and create user account with email/password only
 
 **Request:**
 ```json
 {
   "email": "user@example.com",
-  "otp": "123456",
-  "password": "securePassword123",
-  "username": "johnDoe",
-  "passcode": "123456"
+  "otp": "12345"
 }
 ```
 
@@ -85,7 +102,7 @@ POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile da
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "token_type": "bearer",
   "expires_in": 3600,
-  "user": "{\"id\":\"...\",\"email\":\"user@example.com\",\"username\":\"johnDoe\",...}"
+  "user": "{\"id\":\"...\",\"email\":\"user@example.com\",\"status\":\"ACTIVE\",...}"
 }
 ```
 
@@ -97,16 +114,105 @@ POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile da
 **Notes:**
 - This endpoint creates the user account AND returns authentication token
 - Store the `access_token` securely for subsequent API calls
-- Both password and passcode are hashed automatically by the backend
+- Password from Step 1 is hashed automatically by the backend
 - User status is set to "ACTIVE" after successful verification
-- Passcode is a 6-digit security code separate from the login password
+- Account is created with minimal data (email + password only)
+- Use this token for all subsequent registration steps
 
 ---
 
-### ### Step 3: Phone Number Verification
-**Endpoint:** `POST /api/v1/auth/send-phone-otp`
+### Step 3: Set Passcode
+**Endpoint:** `POST /api/v1/auth/set-passcode`
 
-**Purpose:** Send SMS OTP verification code to user's phone number
+**Purpose:** Set up a 6-digit passcode for security
+
+**Headers Required:**
+```
+Authorization: Bearer YOUR_ACCESS_TOKEN
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "passcode": "123456"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Passcode set successfully",
+  "responseCode": "200"
+}
+```
+
+**Error Responses:**
+- **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
+- **400:** `{"success": false, "message": "Invalid passcode format", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to set passcode", "responseCode": "500"}`
+
+**Notes:**
+- Passcode must be exactly 6 digits (000000-999999)
+- Passcode is automatically hashed before storage
+- Required for app security and authentication
+- User must be authenticated (logged in) to set passcode
+
+---
+
+### Step 4: Identity Verification
+**Endpoint:** `POST /api/v1/auth/identity-verification`
+
+**Purpose:** Verify user identity with BVN and date of birth
+
+**Headers Required:**
+```
+Authorization: Bearer YOUR_ACCESS_TOKEN
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "bvn": "12345678901",
+  "date_of_birth": "1990-01-15"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Identity verification successful",
+  "responseCode": "200"
+}
+```
+
+**Error Responses:**
+- **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
+- **400:** `{"success": false, "message": "Invalid BVN format", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Invalid date format. Use YYYY-MM-DD", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to verify identity", "responseCode": "500"}`
+
+**Notes:**
+- BVN must be exactly 11 digits (numeric only)
+- Date of birth format must be YYYY-MM-DD
+- BVN is encrypted before storage for security
+- Required for compliance and identity verification
+
+---
+
+### Step 5: Set Phone Number
+**Endpoint:** `POST /api/v1/auth/set-phone-number`
+
+**Purpose:** Set phone number (no verification required at this step)
+
+**Headers Required:**
+```
+Authorization: Bearer YOUR_ACCESS_TOKEN
+Content-Type: application/json
+```
 
 **Request:**
 ```json
@@ -119,67 +225,31 @@ POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile da
 ```json
 {
   "success": true,
-  "message": "Phone verification code sent successfully",
+  "message": "Phone number set successfully",
   "responseCode": "200",
   "data": {
-    "phone_number": "+2348123456789",
-    "otp": "123456"  // Only in development environment
+    "phone_number": "+2348123456789"
   }
 }
 ```
 
 **Error Responses:**
+- **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
 - **400:** `{"success": false, "message": "Invalid phone number format", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "Failed to send verification code", "responseCode": "500"}`
+- **500:** `{"success": false, "message": "Failed to set phone number", "responseCode": "500"}`
 
 **Notes:**
 - Phone number must be in international format (+CountryCodeNumber)
-- OTP expires after 5 minutes
-- SMS integration ready (currently logs OTP in development)
+- No OTP verification required at this step
+- Phone can be verified later by user in their own time
+- Phone number is stored in both user.phone and user.kyc.phone_2
 
 ---
 
-### **Phone OTP Verification**
-**Endpoint:** `POST /api/v1/auth/verify-phone-otp`
+### Step 6: Set Username
+**Endpoint:** `POST /api/v1/auth/set-username`
 
-**Purpose:** Verify SMS OTP and confirm phone number
-
-**Request:**
-```json
-{
-  "phone_number": "+2348123456789",
-  "otp": "123456"
-}
-```
-
-**Success Response (200):**
-```json
-{
-  "success": true,
-  "message": "Phone verification successful",
-  "responseCode": "200",
-  "data": {
-    "phone_number": "+2348123456789",
-    "verified": true
-  }
-}
-```
-
-**Error Responses:**
-- **400:** `{"success": false, "message": "Invalid or expired verification code", "responseCode": "400"}`
-- **400:** `{"success": false, "message": "Invalid verification code", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "Failed to verify phone code", "responseCode": "500"}`
-
-**Notes:**
-- OTP is single-use and deleted after verification
-- Phone number must match the one used in send-phone-otp
-
----
-
-### ### Step 4: Complete Profile
-**Endpoint:** `POST /api/v1/user/update-profile`
-
-**Purpose:** Complete user profile with all information needed for wallet creation
+**Purpose:** Set unique username for the user
 
 **Headers Required:**
 ```
@@ -188,6 +258,91 @@ Content-Type: application/json
 ```
 
 **Request:**
+```json
+{
+  "username": "johnDoe123"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Username set successfully",
+  "responseCode": "200",
+  "data": {
+    "username": "johnDoe123"
+  }
+}
+```
+
+**Error Responses:**
+- **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
+- **400:** `{"success": false, "message": "Username is already taken", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Invalid username format", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to set username", "responseCode": "500"}`
+
+**Notes:**
+- Username must be 3-20 characters, alphanumeric + underscore only
+- Username must be unique across all users
+- Case-sensitive validation
+- Can be used for login along with email
+
+---
+
+### Step 7: Set Transaction PIN
+**Endpoint:** `POST /api/v1/auth/set-transaction-pin`
+
+**Purpose:** Set up a 4-digit transaction PIN for financial operations during onboarding
+
+**Headers Required:**
+```
+Authorization: Bearer YOUR_ACCESS_TOKEN
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "transaction_pin": "1234"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Transaction PIN set successfully",
+  "responseCode": "200"
+}
+```
+
+**Error Responses:**
+- **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
+- **400:** `{"success": false, "message": "Invalid PIN format", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to set transaction PIN", "responseCode": "500"}`
+
+**Notes:**
+- Transaction PIN must be exactly 4 digits (0000-9999)
+- PIN is automatically hashed before storage
+- Required for financial operations like transfers and payments
+- User must be authenticated (logged in) to set PIN
+- PIN can be updated later through user settings
+
+---
+
+### Step 8: Complete Profile
+**Endpoint:** `POST /api/v1/user/update-profile`
+
+**Purpose:** Complete user profile with remaining information needed for wallet creation
+
+**Headers Required:**
+```
+Authorization: Bearer YOUR_ACCESS_TOKEN
+Content-Type: application/json
+```
+
+**Request (Flexible - All Fields Optional):**
 ```json
 {
   "first_name": "John",
@@ -203,6 +358,33 @@ Content-Type: application/json
 }
 ```
 
+**Request Examples (Partial Updates):**
+
+*Only update missing name fields:*
+```json
+{
+  "first_name": "John",
+  "last_name": "Doe",
+  "gender": "male"
+}
+```
+
+*Only update address:*
+```json
+{
+  "address_line_1": "123 Main Street",
+  "city": "Lagos",
+  "state": "Lagos"
+}
+```
+
+*Update single field:*
+```json
+{
+  "gender": "male"
+}
+```
+
 **Success Response (200):**
 ```json
 {
@@ -215,22 +397,42 @@ Content-Type: application/json
 }
 ```
 
+**Alternative Success Response (No Changes):**
+```json
+{
+  "success": true,
+  "message": "No updates necessary - all provided data already exists",
+  "responseCode": "200",
+  "data": {
+    "id": "user_id_string"
+  }
+}
+```
+
 **Error Responses:**
 - **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
+- **400:** `{"success": false, "message": "At least one field must be provided for update", "responseCode": "400"}`
 - **400:** `{"success": false, "message": "Invalid date format. Use YYYY-MM-DD", "responseCode": "400"}`
 - **500:** `{"success": false, "message": "Failed to update profile", "responseCode": "500"}`
 
 **Notes:**
-- All fields are required for wallet creation
+- **Required for wallet creation** - all necessary fields must be completed eventually
+- **Flexible to prevent API breaking** - fields are optional so API won't break if users don't re-submit data already provided during registration
+- **ALL FIELDS STILL REQUIRED FOR WALLET** - complete profile needed for wallet creation
+- **Data from registration** - BVN, DOB, and phone are already collected in Steps 4-5
+- **Send only missing data** - typically just names, gender, and address after registration
+- **Smart duplicate detection** - won't update fields with identical values
+- **BVN comparison** - decrypts existing BVN to avoid unnecessary updates
+- **Partial address updates** - can update individual address fields
+- **No breaking changes** - endpoint handles any combination of fields gracefully
 - BVN is encrypted before storage
 - Phone number is saved in both `user.phone` and `user.kyc.phone_2`
 - Date format must be YYYY-MM-DD
 - Country is automatically set to Nigeria
-- Profile must be completed before wallet creation
 
 ---
 
-### ### Step 5: Create Wallet
+### Step 9: Create Wallet
 **Endpoint:** `POST /api/v1/kyc/create_nuban`
 
 **Purpose:** Create virtual bank account using stored profile information
@@ -267,9 +469,9 @@ Content-Type: application/json
 - **502:** `{"success": false, "message": "Banking service unavailable", "responseCode": "502"}`
 
 **Notes:**
-- Uses profile information stored in Step 4 to create wallet
+- Uses profile information stored in Step 5 to create wallet
 - No additional data required in request body
-- User must complete profile (Step 4) before wallet creation
+- User must complete profile (Step 5) before wallet creation
 - Creates real virtual bank account via 9PSB API
 - Account number can be used to receive payments
 - Process may take a few seconds due to external API call
@@ -288,7 +490,7 @@ Content-Type: application/json
 ### **Credential Management:**
 - **Password:** 8+ characters for login authentication
 - **Passcode:** 6-digit security code (set during registration)
-- **Transaction PIN:** 4-digit code for financial operations (set later by user)
+- **Transaction PIN:** 4-digit code for financial operations (set during onboarding)
 
 ### **Token Format:**
 ```
@@ -309,8 +511,9 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 1. Email Submitted → PENDING (OTP sent)
 2. OTP Verified → ACTIVE (account created with password + passcode)
 3. Phone Verified → ACTIVE (phone number confirmed)
-4. Profile Completed → ACTIVE (all info stored, ready for wallet)
-5. Wallet Created → ACTIVE (full financial access)
+4. Transaction PIN Set → ACTIVE (financial security enabled)
+5. Profile Completed → ACTIVE (all info stored, ready for wallet)
+6. Wallet Created → ACTIVE (full financial access)
 ```
 
 ### **Account Levels:**
@@ -415,13 +618,15 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 ### **Validation Requirements:**
 - **Email:** Valid email format
 - **Password:** Minimum 8 characters (backend enforced)
+- **OTP:** Exactly 5 digits (email verification only)
 - **Passcode:** Exactly 6 digits (numeric only)
-- **Username:** 3-20 characters, alphanumeric + underscore
-- **OTP:** Exactly 6 digits (email and SMS)
-- **Phone Number:** International format (+CountryCodeNumber)
 - **BVN:** Exactly 11 digits (numeric only)
-- **Gender:** "male" or "female"
 - **Date of Birth:** YYYY-MM-DD format
+- **Phone Number:** International format (+CountryCodeNumber)
+- **Username:** 3-20 characters, alphanumeric + underscore
+- **Transaction PIN:** Exactly 4 digits (0000-9999)
+- **Gender:** "male" or "female" (for profile completion)
+- **Names:** Required for profile completion (first_name, last_name, middle_name optional)
 
 ---
 
@@ -454,6 +659,7 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 - [ ] Test phone number formatting and validation
 - [ ] Implement BVN input validation (11 digits)
 - [ ] Implement date picker for date of birth
+- [ ] Implement transaction PIN input (4 digits, numeric keypad)
 - [ ] Understand profile completion requirement for wallet creation
 
 ### **Before Release:**
@@ -484,12 +690,12 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 
 **Single Path (Simplified)**
 ```
-Step 4: POST /user/update-profile → Complete Profile (All Info Stored)
-Step 5: POST /kyc/create_nuban → Wallet Created (Uses Stored Profile Data)
+Step 8: POST /user/update-profile → Complete Profile (All Info Stored)
+Step 9: POST /kyc/create_nuban → Wallet Created (Uses Stored Profile Data)
 ```
 
 ### **Important Frontend Considerations:**
-- **Profile completion required:** User must complete Step 4 before wallet creation
+- **Profile completion required:** User must complete Step 8 before wallet creation
 - **All fields required:** BVN, personal info, and address all needed for 9PSB
 - **Clear progression:** Show users what step they're on in the registration flow
 - **Validation feedback:** Provide immediate feedback on BVN format, date format, etc.
@@ -498,4 +704,4 @@ Step 5: POST /kyc/create_nuban → Wallet Created (Uses Stored Profile Data)
 
 ---
 
-This guide provides all the API information needed to implement the registration flow with enhanced security (password + passcode) and clear virtual account creation options. The backend handles all complex business logic, security, and integrations - focus on creating a smooth user experience!
+This guide provides all the API information needed to implement the registration flow with enhanced security (password + passcode + transaction PIN) and clear virtual account creation options. The backend handles all complex business logic, security, and integrations - focus on creating a smooth user experience!
