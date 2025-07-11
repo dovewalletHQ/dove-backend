@@ -25,7 +25,7 @@ POST /api/v1/auth/set-transaction-pin    - Set 4-digit transaction PIN
 POST /api/v1/user/update-profile         - Complete profile with all info
 POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile data)
 ```
-w
+
 ### **Flow Separation:**
 
 **Authentication Flow** (Email → Password → Verify → Create Account → Passcode):
