@@ -10,35 +10,36 @@ This guide provides the essential API information needed to implement the Dove a
 
 ### User Journey:
 ```
-1. Email + Password Registration → 2. OTP Verification & Account Creation → 3. Set Passcode → 4. Identity Verification (BVN + DOB) → 5. Phone Number Collection → 6. Set Username → 7. Set Transaction PIN → 8. Complete Profile → 9. Create Wallet
+1. Email + Password Registration → 2. OTP Verification (No Account Creation) → 3. Set Passcode → 4. Identity Verification (BVN + DOB) → 5. Phone Number OTP Verification → 6. Set Username & Create Account → 7. Set Transaction PIN → 8. Complete Profile → 9. Create Wallet
 ```
 
 ### API Endpoints Summary:
 ```
-POST /api/v1/auth/register               - Send 5-digit OTP to email (with password)
-POST /api/v1/auth/verify-otp             - Verify OTP & create account with email/password
-POST /api/v1/auth/set-passcode           - Set 6-digit passcode
-POST /api/v1/auth/identity-verification  - Verify identity with BVN + date of birth
-POST /api/v1/auth/set-phone-number       - Set phone number (no verification required)
-POST /api/v1/auth/set-username           - Set unique username
-POST /api/v1/auth/set-transaction-pin    - Set 4-digit transaction PIN
-POST /api/v1/user/update-profile         - Complete profile with all info
-POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile data)
+POST /api/v1/auth/register                         - Send 5-digit OTP to email (with password)
+POST /api/v1/auth/verify-otp                       - Verify OTP (NO account creation)
+POST /api/v1/auth/registration/set-passcode        - Set 6-digit passcode (registration flow)
+POST /api/v1/auth/registration/identity-verification - Verify identity with BVN + date of birth (registration flow)
+POST /api/v1/auth/registration/send-phone-otp      - Send OTP to phone number (registration flow)
+POST /api/v1/auth/registration/verify-phone-otp    - Verify phone OTP (registration flow)
+POST /api/v1/auth/registration/set-username        - Set username & CREATE ACCOUNT with all data
+POST /api/v1/auth/set-transaction-pin              - Set 4-digit transaction PIN
+POST /api/v1/user/update-profile                   - Complete profile with all info
+POST /api/v1/kyc/create_nuban                      - Create wallet (uses stored profile data)
 ```
 
 ### **Flow Separation:**
 
-**Authentication Flow** (Email → Password → Verify → Create Account → Passcode):
-- Steps 1-3: Basic account creation with minimal data
-- User gets authenticated access token after Step 2
+**Data Collection Flow** (Email → Password → Verify → Passcode → Identity → Phone):
+- Steps 1-5: Progressive data collection without account creation
+- All data stored temporarily in cache during registration process
 
-**Identity Verification Flow** (BVN → DOB → Phone → Username → PIN):
-- Steps 4-7: Progressive data collection while authenticated
-- All steps require authentication token from Step 2
+**Account Creation Flow** (Username → Create Account):
+- Step 6: Account creation with all collected data
+- User gets authenticated access token after account creation
 
-**Profile & Wallet Flow** (Complete Profile → Create Wallet):
-- Steps 8-9: Final profile completion and financial account setup
-- Unchanged from previous implementation
+**Profile & Wallet Flow** (Transaction PIN → Complete Profile → Create Wallet):
+- Steps 7-9: Final profile completion and financial account setup
+- Requires authentication token from Step 6
 
 ---
 
@@ -83,10 +84,10 @@ POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile da
 
 ---
 
-### Step 2: OTP Verification & Account Creation
+### Step 2: OTP Verification (No Account Creation)
 **Endpoint:** `POST /api/v1/auth/verify-otp`
 
-**Purpose:** Verify 5-digit OTP and create user account with email/password only
+**Purpose:** Verify 5-digit OTP and store verified status (account creation deferred)
 
 **Request:**
 ```json
@@ -99,42 +100,45 @@ POST /api/v1/kyc/create_nuban            - Create wallet (uses stored profile da
 **Success Response (200):**
 ```json
 {
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer",
-  "expires_in": 3600,
-  "user": "{\"id\":\"...\",\"email\":\"user@example.com\",\"status\":\"ACTIVE\",...}"
+  "success": true,
+  "message": "OTP verified successfully",
+  "responseCode": "200",
+  "data": {
+    "email": "user@example.com",
+    "verified": true
+  }
 }
 ```
 
 **Error Responses:**
 - **400:** `{"success": false, "message": "Invalid or expired OTP", "responseCode": "400"}`
-- **400:** `{"success": false, "message": "Email already registered", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "User creation failed", "responseCode": "500"}`
+- **400:** `{"success": false, "message": "Registration session expired", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "OTP verification failed", "responseCode": "500"}`
 
 **Notes:**
-- This endpoint creates the user account AND returns authentication token
-- Store the `access_token` securely for subsequent API calls
-- Password from Step 1 is hashed automatically by the backend
-- User status is set to "ACTIVE" after successful verification
-- Account is created with minimal data (email + password only)
-- Use this token for all subsequent registration steps
+- This endpoint does NOT create the user account - only verifies OTP
+- No access token is returned - account creation happens later
+- Verified status is stored in cache for 30 minutes
+- Password from Step 1 is stored securely in cache
+- User must proceed to next registration steps
+- Account creation occurs in Step 6 after username submission
 
 ---
 
 ### Step 3: Set Passcode
-**Endpoint:** `POST /api/v1/auth/set-passcode`
+**Endpoint:** `POST /api/v1/auth/registration/set-passcode`
 
-**Purpose:** Set up a 6-digit passcode for security
+**Purpose:** Set up a 6-digit passcode during registration flow
 
 **Headers Required:**
 ```
-Authorization: Bearer YOUR_ACCESS_TOKEN
 Content-Type: application/json
 ```
 
 **Request:**
 ```json
 {
+  "email": "user@example.com",
   "passcode": "123456"
 }
 ```
@@ -149,32 +153,32 @@ Content-Type: application/json
 ```
 
 **Error Responses:**
-- **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
+- **400:** `{"success": false, "message": "Registration session expired", "responseCode": "400"}`
 - **400:** `{"success": false, "message": "Invalid passcode format", "responseCode": "400"}`
 - **500:** `{"success": false, "message": "Failed to set passcode", "responseCode": "500"}`
 
 **Notes:**
 - Passcode must be exactly 6 digits (000000-999999)
-- Passcode is automatically hashed before storage
+- Passcode is stored in cache until account creation
 - Required for app security and authentication
-- User must be authenticated (logged in) to set passcode
+- No authentication required - uses email to identify registration session
 
 ---
 
 ### Step 4: Identity Verification
-**Endpoint:** `POST /api/v1/auth/identity-verification`
+**Endpoint:** `POST /api/v1/auth/registration/identity-verification`
 
-**Purpose:** Verify user identity with BVN and date of birth
+**Purpose:** Verify user identity with BVN and date of birth during registration
 
 **Headers Required:**
 ```
-Authorization: Bearer YOUR_ACCESS_TOKEN
 Content-Type: application/json
 ```
 
 **Request:**
 ```json
 {
+  "email": "user@example.com",
   "bvn": "12345678901",
   "date_of_birth": "1990-01-15"
 }
@@ -190,7 +194,7 @@ Content-Type: application/json
 ```
 
 **Error Responses:**
-- **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
+- **400:** `{"success": false, "message": "Registration session expired", "responseCode": "400"}`
 - **400:** `{"success": false, "message": "Invalid BVN format", "responseCode": "400"}`
 - **400:** `{"success": false, "message": "Invalid date format. Use YYYY-MM-DD", "responseCode": "400"}`
 - **500:** `{"success": false, "message": "Failed to verify identity", "responseCode": "500"}`
@@ -198,25 +202,26 @@ Content-Type: application/json
 **Notes:**
 - BVN must be exactly 11 digits (numeric only)
 - Date of birth format must be YYYY-MM-DD
-- BVN is encrypted before storage for security
+- BVN is stored in cache until account creation
 - Required for compliance and identity verification
+- No authentication required - uses email to identify registration session
 
 ---
 
-### Step 5: Set Phone Number
-**Endpoint:** `POST /api/v1/auth/set-phone-number`
+### Step 5: Phone Number OTP Verification
+**Endpoint:** `POST /api/v1/auth/registration/send-phone-otp`
 
-**Purpose:** Set phone number (no verification required at this step)
+**Purpose:** Send OTP to phone number for verification during registration
 
 **Headers Required:**
 ```
-Authorization: Bearer YOUR_ACCESS_TOKEN
 Content-Type: application/json
 ```
 
 **Request:**
 ```json
 {
+  "email": "user@example.com",
   "phone_number": "+2348123456789"
 }
 ```
@@ -225,42 +230,44 @@ Content-Type: application/json
 ```json
 {
   "success": true,
-  "message": "Phone number set successfully",
+  "message": "OTP sent successfully",
   "responseCode": "200",
   "data": {
-    "phone_number": "+2348123456789"
+    "phone_number": "+2348123456789",
+    "otp": "12345"
   }
 }
 ```
 
 **Error Responses:**
-- **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
+- **400:** `{"success": false, "message": "Registration session expired", "responseCode": "400"}`
 - **400:** `{"success": false, "message": "Invalid phone number format", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "Failed to set phone number", "responseCode": "500"}`
+- **500:** `{"success": false, "message": "Failed to send OTP", "responseCode": "500"}`
 
 **Notes:**
 - Phone number must be in international format (+CountryCodeNumber)
-- No OTP verification required at this step
-- Phone can be verified later by user in their own time
-- Phone number is stored in both user.phone and user.kyc.phone_2
+- OTP is sent via SMS (SMS integration required)
+- OTP is 5 digits and expires after 5 minutes
+- OTP is only returned in development mode for testing
+- Phone number is stored in cache until account creation
 
 ---
 
-### Step 6: Set Username
-**Endpoint:** `POST /api/v1/auth/set-username`
+### Step 5b: Verify Phone OTP
+**Endpoint:** `POST /api/v1/auth/registration/verify-phone-otp`
 
-**Purpose:** Set unique username for the user
+**Purpose:** Verify phone number OTP during registration
 
 **Headers Required:**
 ```
-Authorization: Bearer YOUR_ACCESS_TOKEN
 Content-Type: application/json
 ```
 
 **Request:**
 ```json
 {
-  "username": "johnDoe123"
+  "phone_number": "+2348123456789",
+  "otp": "12345"
 }
 ```
 
@@ -268,25 +275,68 @@ Content-Type: application/json
 ```json
 {
   "success": true,
-  "message": "Username set successfully",
+  "message": "Phone number verified successfully",
   "responseCode": "200",
   "data": {
-    "username": "johnDoe123"
+    "phone_number": "+2348123456789",
+    "verified": true
   }
 }
 ```
 
 **Error Responses:**
-- **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
+- **400:** `{"success": false, "message": "Invalid or expired OTP", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to verify phone OTP", "responseCode": "500"}`
+
+**Notes:**
+- OTP must be exactly 5 digits
+- OTP verification is required before proceeding to username setup
+- Phone number verification is mandatory during registration
+
+---
+
+### Step 6: Set Username & Create Account
+**Endpoint:** `POST /api/v1/auth/registration/set-username`
+
+**Purpose:** Set unique username and create user account with all collected data
+
+**Headers Required:**
+```
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "email": "user@example.com",
+  "username": "johnDoe123"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "user": "{\"id\":\"...\",\"email\":\"user@example.com\",\"username\":\"johnDoe123\",\"status\":\"ACTIVE\",...}"
+}
+```
+
+**Error Responses:**
+- **400:** `{"success": false, "message": "Registration session expired", "responseCode": "400"}`
 - **400:** `{"success": false, "message": "Username is already taken", "responseCode": "400"}`
 - **400:** `{"success": false, "message": "Invalid username format", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "Failed to set username", "responseCode": "500"}`
+- **500:** `{"success": false, "message": "Failed to set username and create account", "responseCode": "500"}`
 
 **Notes:**
 - Username must be 3-20 characters, alphanumeric + underscore only
 - Username must be unique across all users
 - Case-sensitive validation
-- Can be used for login along with email
+- **THIS STEP CREATES THE USER ACCOUNT** with all collected data
+- Returns access token for subsequent authenticated requests
+- Account is created with email, password, passcode, BVN, DOB, and phone number
+- Store the access token securely for remaining registration steps
 
 ---
 
@@ -508,12 +558,15 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ### **Registration States:**
 ```
-1. Email Submitted → PENDING (OTP sent)
-2. OTP Verified → ACTIVE (account created with password + passcode)
-3. Phone Verified → ACTIVE (phone number confirmed)
-4. Transaction PIN Set → ACTIVE (financial security enabled)
-5. Profile Completed → ACTIVE (all info stored, ready for wallet)
-6. Wallet Created → ACTIVE (full financial access)
+1. Email Submitted → PENDING (OTP sent, no account)
+2. OTP Verified → PENDING (verified but no account)
+3. Passcode Set → PENDING (data collected, no account)
+4. Identity Verified → PENDING (BVN/DOB collected, no account)
+5. Phone Verified → PENDING (phone verified, no account)
+6. Username Set → ACTIVE (account created with all data)
+7. Transaction PIN Set → ACTIVE (financial security enabled)
+8. Profile Completed → ACTIVE (all info stored, ready for wallet)
+9. Wallet Created → ACTIVE (full financial access)
 ```
 
 ### **Account Levels:**
