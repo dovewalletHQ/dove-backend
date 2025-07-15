@@ -2,59 +2,65 @@
 
 ## Overview for Frontend Developers
 
-This guide provides the essential API information needed to implement the Dove app registration flow in React Native. No code examples - just the API specifications, data flow, and integration requirements.
+This guide provides the essential API information needed to implement the new simplified Dove app registration flow in React Native. The registration flow has been completely restructured for better security and user experience.
 
 ---
 
-## Registration Flow Overview
+## New Registration Flow Overview
 
-### User Journey:
+### User Journey (Simplified):
 ```
-1. Email + Password Registration → 2. OTP Verification (No Account Creation) → 3. Set Passcode → 4. Identity Verification (BVN + DOB) → 5. Phone Number OTP Verification → 6. Set Username & Create Account → 7. Set Transaction PIN → 8. Complete Profile → 9. Create Wallet
+1. Email Verification → 2. Phone Verification → 3. Username Creation → 4. Password & Account Creation → 5. Passcode Setup → 6. Profile Completion → 7. Wallet Creation
 ```
+
+### Key Changes:
+- **Session-based security**: All steps linked via unique session ID
+- **Verification before account creation**: Email and phone verified before creating account
+- **Sequential validation**: Each step validates previous steps are completed
+- **Single account creation point**: Account created only after all verifications
 
 ### API Endpoints Summary:
 ```
-POST /api/v1/auth/register                         - Send 5-digit OTP to email (with password)
-POST /api/v1/auth/verify-otp                       - Verify OTP (NO account creation)
-POST /api/v1/auth/registration/set-passcode        - Set 6-digit passcode (registration flow)
-POST /api/v1/auth/registration/identity-verification - Verify identity with BVN + date of birth (registration flow)
-POST /api/v1/auth/registration/send-phone-otp      - Send OTP to phone number (registration flow)
-POST /api/v1/auth/registration/verify-phone-otp    - Verify phone OTP (registration flow)
-POST /api/v1/auth/registration/set-username        - Set username & CREATE ACCOUNT with all data
-POST /api/v1/auth/set-transaction-pin              - Set 4-digit transaction PIN
-POST /api/v1/user/update-profile                   - Complete profile with all info
-POST /api/v1/kyc/create_nuban                      - Create wallet (uses stored profile data)
+POST /api/v1/auth/send-email-otp          - Send OTP to email (Step 1)
+POST /api/v1/auth/verify-email-otp        - Verify email OTP (Step 2)
+POST /api/v1/auth/send-phone-otp          - Send OTP to phone (Step 3)
+POST /api/v1/auth/verify-phone-otp        - Verify phone OTP (Step 4)
+POST /api/v1/auth/check-username          - Check username availability (Step 5)
+POST /api/v1/auth/create-account          - Create account with password (Step 6)
+POST /api/v1/auth/set-passcode            - Set 6-digit passcode (Step 7)
+POST /api/v1/user/update-profile          - Complete profile information (Step 8)
+GET  /api/v1/wallet/readiness-check       - Check if ready for wallet creation
+POST /api/v1/wallet/create_wallet         - Create wallet (no request body needed)
 ```
 
 ### **Flow Separation:**
 
-**Data Collection Flow** (Email → Password → Verify → Passcode → Identity → Phone):
-- Steps 1-5: Progressive data collection without account creation
-- All data stored temporarily in cache during registration process
+**Verification Flow** (Steps 1-4):
+- Email verification → Phone verification
+- All data stored in session cache (30-minute expiration)
+- No account creation during these steps
 
-**Account Creation Flow** (Username → Create Account):
-- Step 6: Account creation with all collected data
-- User gets authenticated access token after account creation
+**Account Creation Flow** (Steps 5-6):
+- Username validation → Account creation with password
+- User receives authentication token after account creation
 
-**Profile & Wallet Flow** (Transaction PIN → Complete Profile → Create Wallet):
-- Steps 7-9: Final profile completion and financial account setup
+**Profile & Wallet Flow** (Steps 7-9):
+- Passcode setup → Profile completion → Wallet creation
 - Requires authentication token from Step 6
 
 ---
 
 ## API Endpoints Documentation
 
-### Step 1: Email + Password Registration
-**Endpoint:** `POST /api/v1/auth/register`
+### Step 1: Send Email OTP
+**Endpoint:** `POST /api/v1/auth/send-email-otp`
 
-**Purpose:** Send 5-digit OTP verification code to user's email (password required)
+**Purpose:** Send 5-digit OTP verification code to user's email and initiate registration session
 
 **Request:**
 ```json
 {
-  "email": "user@example.com",
-  "password": "securePassword123"
+  "email": "user@example.com"
 }
 ```
 
@@ -62,37 +68,38 @@ POST /api/v1/kyc/create_nuban                      - Create wallet (uses stored 
 ```json
 {
   "success": true,
-  "message": "OTP sent successfully",
+  "message": "Verification code sent to your email",
   "responseCode": "200",
   "data": {
     "email": "user@example.com",
-    "otp": "12345"  // 5-digit OTP, only in development environment
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "otp": "12345"  // Only in development environment
   }
 }
 ```
 
 **Error Responses:**
-- **400:** `{"success": false, "message": "User already exists", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "Registration failed", "responseCode": "500"}`
+- **400:** `{"success": false, "message": "Email already registered", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to send verification code", "responseCode": "500"}`
 
 **Notes:**
 - Email is automatically converted to lowercase
-- Password is stored securely with the OTP for account creation
-- OTP is now 5 digits instead of 6
-- OTP expires after 5 minutes (configurable)
-- OTP is only returned in development mode for testing
+- Creates unique session ID for tracking registration progress
+- Session expires in 30 minutes
+- OTP expires in 5 minutes
+- OTP only returned in development mode for testing
 
 ---
 
-### Step 2: OTP Verification (No Account Creation)
-**Endpoint:** `POST /api/v1/auth/verify-otp`
+### Step 2: Verify Email OTP
+**Endpoint:** `POST /api/v1/auth/verify-email-otp`
 
-**Purpose:** Verify 5-digit OTP and store verified status (account creation deferred)
+**Purpose:** Verify email OTP using session ID and mark email as verified
 
 **Request:**
 ```json
 {
-  "email": "user@example.com",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "otp": "12345"
 }
 ```
@@ -101,44 +108,222 @@ POST /api/v1/kyc/create_nuban                      - Create wallet (uses stored 
 ```json
 {
   "success": true,
-  "message": "OTP verified successfully",
+  "message": "Email verified successfully",
   "responseCode": "200",
   "data": {
     "email": "user@example.com",
-    "verified": true
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "verified": true,
+    "next_step": "phone_verification"
   }
 }
 ```
 
 **Error Responses:**
-- **400:** `{"success": false, "message": "Invalid or expired OTP", "responseCode": "400"}`
-- **400:** `{"success": false, "message": "Registration session expired", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "OTP verification failed", "responseCode": "500"}`
+- **400:** `{"success": false, "message": "Registration session expired or invalid", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Invalid verification code", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Invalid registration step", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to verify email", "responseCode": "500"}`
 
 **Notes:**
-- This endpoint does NOT create the user account - only verifies OTP
-- No access token is returned - account creation happens later
-- Verified status is stored in cache for 30 minutes
-- Password from Step 1 is stored securely in cache
-- User must proceed to next registration steps
-- Account creation occurs in Step 6 after username submission
+- Requires session ID from Step 1
+- OTP must be exactly 5 digits
+- Validates that current step is "email_verification"
+- Updates session to move to next step
 
 ---
 
-### Step 3: Set Passcode
-**Endpoint:** `POST /api/v1/auth/registration/set-passcode`
+### Step 3: Send Phone OTP
+**Endpoint:** `POST /api/v1/auth/send-phone-otp`
 
-**Purpose:** Set up a 6-digit passcode during registration flow
+**Purpose:** Send OTP to phone number using session ID (requires email to be verified)
+
+**Request:**
+```json
+{
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "phone_number": "+2348123456789"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Verification code sent to your phone",
+  "responseCode": "200",
+  "data": {
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "phone_number": "+2348123456789",
+    "otp": "12345"  // Only in development environment
+  }
+}
+```
+
+**Error Responses:**
+- **400:** `{"success": false, "message": "Registration session expired or invalid", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Email must be verified first", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Invalid registration step", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to send phone verification code", "responseCode": "500"}`
+
+**Notes:**
+- Phone number must be in E.164 format (+CountryCodeNumber)
+- Requires email to be verified in the same session
+- SMS integration will be implemented (currently returns OTP in development)
+- Session ID links phone to verified email
+
+---
+
+### Step 4: Verify Phone OTP
+**Endpoint:** `POST /api/v1/auth/verify-phone-otp`
+
+**Purpose:** Verify phone OTP using session ID and mark phone as verified
+
+**Request:**
+```json
+{
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "otp": "12345"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Phone verified successfully",
+  "responseCode": "200",
+  "data": {
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "phone_number": "+2348123456789",
+    "verified": true,
+    "next_step": "username_selection"
+  }
+}
+```
+
+**Error Responses:**
+- **400:** `{"success": false, "message": "Registration session expired or invalid", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Email must be verified first", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Phone number must be provided first", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Invalid verification code", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to verify phone", "responseCode": "500"}`
+
+**Notes:**
+- Validates both email and phone verification in sequence
+- Updates session to allow username selection
+- All verification data remains linked via session ID
+
+---
+
+### Step 5: Check Username Availability
+**Endpoint:** `POST /api/v1/auth/check-username`
+
+**Purpose:** Check username availability and store in session (requires email and phone verification)
+
+**Request:**
+```json
+{
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "johnDoe123"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Username is available",
+  "responseCode": "200",
+  "data": {
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "username": "johnDoe123",
+    "available": true,
+    "next_step": "account_creation"
+  }
+}
+```
+
+**Error Responses:**
+- **400:** `{"success": false, "message": "Registration session expired or invalid", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Email must be verified first", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Phone must be verified first", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Username is already taken", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to check username availability", "responseCode": "500"}`
+
+**Notes:**
+- Username must be 3-20 characters, alphanumeric + underscore only
+- Case-sensitive validation
+- Requires both email and phone to be verified
+- Stores username in session for account creation
+
+---
+
+### Step 6: Create Account
+**Endpoint:** `POST /api/v1/auth/create-account`
+
+**Purpose:** Create user account with password using all verified session data
+
+**Request:**
+```json
+{
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "password": "securePassword123"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "user": {
+    "id": "user_id_string",
+    "email": "user@example.com",
+    "username": "johnDoe123",
+    "phone": "+2348123456789",
+    "status": "ACTIVE",
+    "kyc_level": "Level_1",
+    "account_tier": "Teir_1"
+  },
+  "message": "Account created successfully"
+}
+```
+
+**Error Responses:**
+- **400:** `{"success": false, "message": "Registration session expired or invalid", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Email must be verified first", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Phone must be verified first", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Username must be set first", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Email was registered by another user", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Username was taken by another user", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Account creation failed", "responseCode": "500"}`
+
+**Notes:**
+- **THIS STEP CREATES THE USER ACCOUNT** with all verified data
+- Password must be minimum 8 characters
+- Returns JWT access token for subsequent authenticated requests
+- Performs final validation to prevent race conditions
+- Cleans up registration session after successful creation
+- Store the access token securely for remaining steps
+
+---
+
+### Step 7: Set Passcode
+**Endpoint:** `POST /api/v1/auth/set-passcode`
+
+**Purpose:** Set up a 6-digit passcode for app security (requires authentication)
 
 **Headers Required:**
 ```
+Authorization: Bearer YOUR_ACCESS_TOKEN
 Content-Type: application/json
 ```
 
 **Request:**
 ```json
 {
-  "email": "user@example.com",
   "passcode": "123456"
 }
 ```
@@ -153,238 +338,22 @@ Content-Type: application/json
 ```
 
 **Error Responses:**
-- **400:** `{"success": false, "message": "Registration session expired", "responseCode": "400"}`
+- **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
 - **400:** `{"success": false, "message": "Invalid passcode format", "responseCode": "400"}`
 - **500:** `{"success": false, "message": "Failed to set passcode", "responseCode": "500"}`
 
 **Notes:**
 - Passcode must be exactly 6 digits (000000-999999)
-- Passcode is stored in cache until account creation
-- Required for app security and authentication
-- No authentication required - uses email to identify registration session
-
----
-
-### Step 4: Identity Verification
-**Endpoint:** `POST /api/v1/auth/registration/identity-verification`
-
-**Purpose:** Verify user identity with BVN and date of birth during registration
-
-**Headers Required:**
-```
-Content-Type: application/json
-```
-
-**Request:**
-```json
-{
-  "email": "user@example.com",
-  "bvn": "12345678901",
-  "date_of_birth": "1990-01-15"
-}
-```
-
-**Success Response (200):**
-```json
-{
-  "success": true,
-  "message": "Identity verification successful",
-  "responseCode": "200"
-}
-```
-
-**Error Responses:**
-- **400:** `{"success": false, "message": "Registration session expired", "responseCode": "400"}`
-- **400:** `{"success": false, "message": "Invalid BVN format", "responseCode": "400"}`
-- **400:** `{"success": false, "message": "Invalid date format. Use YYYY-MM-DD", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "Failed to verify identity", "responseCode": "500"}`
-
-**Notes:**
-- BVN must be exactly 11 digits (numeric only)
-- Date of birth format must be YYYY-MM-DD
-- BVN is stored in cache until account creation
-- Required for compliance and identity verification
-- No authentication required - uses email to identify registration session
-
----
-
-### Step 5: Phone Number OTP Verification
-**Endpoint:** `POST /api/v1/auth/registration/send-phone-otp`
-
-**Purpose:** Send OTP to phone number for verification during registration
-
-**Headers Required:**
-```
-Content-Type: application/json
-```
-
-**Request:**
-```json
-{
-  "email": "user@example.com",
-  "phone_number": "+2348123456789"
-}
-```
-
-**Success Response (200):**
-```json
-{
-  "success": true,
-  "message": "OTP sent successfully",
-  "responseCode": "200",
-  "data": {
-    "phone_number": "+2348123456789",
-    "otp": "12345"
-  }
-}
-```
-
-**Error Responses:**
-- **400:** `{"success": false, "message": "Registration session expired", "responseCode": "400"}`
-- **400:** `{"success": false, "message": "Invalid phone number format", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "Failed to send OTP", "responseCode": "500"}`
-
-**Notes:**
-- Phone number must be in international format (+CountryCodeNumber)
-- OTP is sent via SMS (SMS integration required)
-- OTP is 5 digits and expires after 5 minutes
-- OTP is only returned in development mode for testing
-- Phone number is stored in cache until account creation
-
----
-
-### Step 5b: Verify Phone OTP
-**Endpoint:** `POST /api/v1/auth/registration/verify-phone-otp`
-
-**Purpose:** Verify phone number OTP during registration
-
-**Headers Required:**
-```
-Content-Type: application/json
-```
-
-**Request:**
-```json
-{
-  "phone_number": "+2348123456789",
-  "otp": "12345"
-}
-```
-
-**Success Response (200):**
-```json
-{
-  "success": true,
-  "message": "Phone number verified successfully",
-  "responseCode": "200",
-  "data": {
-    "phone_number": "+2348123456789",
-    "verified": true
-  }
-}
-```
-
-**Error Responses:**
-- **400:** `{"success": false, "message": "Invalid or expired OTP", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "Failed to verify phone OTP", "responseCode": "500"}`
-
-**Notes:**
-- OTP must be exactly 5 digits
-- OTP verification is required before proceeding to username setup
-- Phone number verification is mandatory during registration
-
----
-
-### Step 6: Set Username & Create Account
-**Endpoint:** `POST /api/v1/auth/registration/set-username`
-
-**Purpose:** Set unique username and create user account with all collected data
-
-**Headers Required:**
-```
-Content-Type: application/json
-```
-
-**Request:**
-```json
-{
-  "email": "user@example.com",
-  "username": "johnDoe123"
-}
-```
-
-**Success Response (200):**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer",
-  "expires_in": 3600,
-  "user": "{\"id\":\"...\",\"email\":\"user@example.com\",\"username\":\"johnDoe123\",\"status\":\"ACTIVE\",...}"
-}
-```
-
-**Error Responses:**
-- **400:** `{"success": false, "message": "Registration session expired", "responseCode": "400"}`
-- **400:** `{"success": false, "message": "Username is already taken", "responseCode": "400"}`
-- **400:** `{"success": false, "message": "Invalid username format", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "Failed to set username and create account", "responseCode": "500"}`
-
-**Notes:**
-- Username must be 3-20 characters, alphanumeric + underscore only
-- Username must be unique across all users
-- Case-sensitive validation
-- **THIS STEP CREATES THE USER ACCOUNT** with all collected data
-- Returns access token for subsequent authenticated requests
-- Account is created with email, password, passcode, BVN, DOB, and phone number
-- Store the access token securely for remaining registration steps
-
----
-
-### Step 7: Set Transaction PIN
-**Endpoint:** `POST /api/v1/auth/set-transaction-pin`
-
-**Purpose:** Set up a 4-digit transaction PIN for financial operations during onboarding
-
-**Headers Required:**
-```
-Authorization: Bearer YOUR_ACCESS_TOKEN
-Content-Type: application/json
-```
-
-**Request:**
-```json
-{
-  "transaction_pin": "1234"
-}
-```
-
-**Success Response (200):**
-```json
-{
-  "success": true,
-  "message": "Transaction PIN set successfully",
-  "responseCode": "200"
-}
-```
-
-**Error Responses:**
-- **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
-- **400:** `{"success": false, "message": "Invalid PIN format", "responseCode": "400"}`
-- **500:** `{"success": false, "message": "Failed to set transaction PIN", "responseCode": "500"}`
-
-**Notes:**
-- Transaction PIN must be exactly 4 digits (0000-9999)
-- PIN is automatically hashed before storage
-- Required for financial operations like transfers and payments
-- User must be authenticated (logged in) to set PIN
-- PIN can be updated later through user settings
+- Passcode is automatically hashed before storage
+- Required for app security and quick authentication
+- User must be authenticated (access token from Step 6)
 
 ---
 
 ### Step 8: Complete Profile
 **Endpoint:** `POST /api/v1/user/update-profile`
 
-**Purpose:** Complete user profile with remaining information needed for wallet creation
+**Purpose:** Complete user profile with all information needed for wallet creation
 
 **Headers Required:**
 ```
@@ -392,7 +361,7 @@ Authorization: Bearer YOUR_ACCESS_TOKEN
 Content-Type: application/json
 ```
 
-**Request (Flexible - All Fields Optional):**
+**Request (All fields optional, but all required for wallet creation):**
 ```json
 {
   "first_name": "John",
@@ -403,35 +372,11 @@ Content-Type: application/json
   "date_of_birth": "1990-01-15",
   "bvn": "12345678901",
   "address_line_1": "123 Main Street",
+  "address_line_2": "Apartment 4B",
   "city": "Lagos",
-  "state": "Lagos"
-}
-```
-
-**Request Examples (Partial Updates):**
-
-*Only update missing name fields:*
-```json
-{
-  "first_name": "John",
-  "last_name": "Doe",
-  "gender": "male"
-}
-```
-
-*Only update address:*
-```json
-{
-  "address_line_1": "123 Main Street",
-  "city": "Lagos",
-  "state": "Lagos"
-}
-```
-
-*Update single field:*
-```json
-{
-  "gender": "male"
+  "state": "Lagos",
+  "zip": "100001",
+  "country_name": "Nigeria"
 }
 ```
 
@@ -447,18 +392,6 @@ Content-Type: application/json
 }
 ```
 
-**Alternative Success Response (No Changes):**
-```json
-{
-  "success": true,
-  "message": "No updates necessary - all provided data already exists",
-  "responseCode": "200",
-  "data": {
-    "id": "user_id_string"
-  }
-}
-```
-
 **Error Responses:**
 - **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
 - **400:** `{"success": false, "message": "At least one field must be provided for update", "responseCode": "400"}`
@@ -466,26 +399,84 @@ Content-Type: application/json
 - **500:** `{"success": false, "message": "Failed to update profile", "responseCode": "500"}`
 
 **Notes:**
-- **Required for wallet creation** - all necessary fields must be completed eventually
-- **Flexible to prevent API breaking** - fields are optional so API won't break if users don't re-submit data already provided during registration
-- **ALL FIELDS STILL REQUIRED FOR WALLET** - complete profile needed for wallet creation
-- **Data from registration** - BVN, DOB, and phone are already collected in Steps 4-5
-- **Send only missing data** - typically just names, gender, and address after registration
-- **Smart duplicate detection** - won't update fields with identical values
-- **BVN comparison** - decrypts existing BVN to avoid unnecessary updates
-- **Partial address updates** - can update individual address fields
-- **No breaking changes** - endpoint handles any combination of fields gracefully
-- BVN is encrypted before storage
-- Phone number is saved in both `user.phone` and `user.kyc.phone_2`
-- Date format must be YYYY-MM-DD
-- Country is automatically set to Nigeria
+- **All fields required for wallet creation**: Complete profile needed before wallet
+- **Flexible API**: Send only the fields you want to update
+- **Smart validation**: Won't update fields with identical values
+- **BVN encryption**: BVN is encrypted before storage for security
+- **Address completion**: Full address required for banking compliance
+- **Gender values**: "male" or "female"
+- **Date format**: YYYY-MM-DD required
+- **Phone storage**: Saved in both user.phone and kyc.phone_2
+- **Country default**: Automatically set to Nigeria if not provided
 
 ---
 
-### Step 9: Create Wallet
-**Endpoint:** `POST /api/v1/kyc/create_nuban`
+### Step 9: Check Wallet Readiness
+**Endpoint:** `GET /api/v1/wallet/readiness-check`
 
-**Purpose:** Create virtual bank account using stored profile information
+**Purpose:** Check if user has completed all required information for wallet creation
+
+**Headers Required:**
+```
+Authorization: Bearer YOUR_ACCESS_TOKEN
+```
+
+**Success Response (200) - Ready:**
+```json
+{
+  "success": true,
+  "message": "Wallet creation readiness checked successfully",
+  "responseCode": "200",
+  "data": {
+    "ready_to_create": true,
+    "has_wallet": false,
+    "missing_fields": [],
+    "total_missing": 0
+  }
+}
+```
+
+**Success Response (200) - Not Ready:**
+```json
+{
+  "success": true,
+  "message": "Wallet creation readiness checked successfully",
+  "responseCode": "200",
+  "data": {
+    "ready_to_create": false,
+    "has_wallet": false,
+    "missing_fields": ["first_name", "last_name", "BVN", "address_line_1", "city", "state"],
+    "total_missing": 6
+  }
+}
+```
+
+**Success Response (200) - Already Has Wallet:**
+```json
+{
+  "success": true,
+  "message": "User already has a wallet",
+  "responseCode": "200",
+  "data": {
+    "ready_to_create": false,
+    "has_wallet": true,
+    "account_number": "2234567890",
+    "missing_fields": []
+  }
+}
+```
+
+**Notes:**
+- Use this endpoint to guide users on what information they need to complete
+- Shows exactly which fields are missing for wallet creation
+- Helps prevent failed wallet creation attempts
+
+---
+
+### Step 10: Create Wallet
+**Endpoint:** `POST /api/v1/wallet/create_wallet`
+
+**Purpose:** Create virtual bank account using completed profile information stored in user's account
 
 **Headers Required:**
 ```
@@ -501,31 +492,37 @@ Content-Type: application/json
 **Success Response (200):**
 ```json
 {
-  "success": true,
-  "message": "NUBAN account created successfully",
-  "responseCode": "200",
+  "status": "success",
+  "message": "Wallet created successfully",
   "data": {
-    "account_number": "2234567890",
-    "account_name": "John William Doe",
-    "bank_name": "9 PAYMENT SERVICE BANK",
-    "customer_id": "CUST123456"
+    "accountNumber": "2234567890",
+    "fullName": "John William Doe",
+    "customerID": "CUST123456",
+    "bankName": "9 PAYMENT SERVICE BANK"
   }
 }
 ```
 
 **Error Responses:**
 - **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
-- **400:** `{"success": false, "message": "Please complete your profile first before creating a wallet", "responseCode": "400"}`
-- **502:** `{"success": false, "message": "Banking service unavailable", "responseCode": "502"}`
+- **400:** `{"success": false, "message": "You already have a wallet created", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Please complete your profile first before creating a wallet. Missing: first_name, BVN", "responseCode": "400"}`
+- **500:** `{"success": false, "message": "Failed to create wallet", "responseCode": "500"}`
 
 **Notes:**
-- Uses profile information stored in Step 5 to create wallet
-- No additional data required in request body
-- User must complete profile (Step 5) before wallet creation
-- Creates real virtual bank account via 9PSB API
-- Account number can be used to receive payments
-- Process may take a few seconds due to external API call
-- BVN and address from profile are used for 9PSB requirements
+- **No request data needed**: All information automatically pulled from user's completed profile
+- **Profile validation**: Automatically checks if all required fields are completed
+- **Duplicate prevention**: Prevents creating multiple wallets for same user
+- **External API**: Creates real virtual bank account via 9PSB API
+- **Automatic data mapping**: 
+  - Gender converted to integer (1 = male, 2 = female)
+  - Phone number formatted (removes country code)
+  - BVN decrypted from secure storage
+  - Full address built from address components
+  - Account name built from first + middle + last names
+  - Transaction reference auto-generated
+- **Processing time**: May take 5-10 seconds due to external banking API
+- **One-time creation**: Once successful, user has full financial access
 
 ---
 
@@ -535,22 +532,18 @@ Content-Type: application/json
 - **Token Type:** JWT Bearer token
 - **Expiration:** 60 minutes (3600 seconds)
 - **Storage:** Store securely in device keychain/secure storage
-- **Usage:** Include in `Authorization` header for protected endpoints
+- **Usage:** Include in `Authorization` header for protected endpoints (Steps 7-10)
+
+### **Session Management:**
+- **Session ID:** Links all verification steps (Steps 1-6)
+- **Expiration:** 30 minutes for registration session
+- **Security:** Prevents race conditions and ensures data integrity
+- **Cleanup:** Session automatically deleted after account creation
 
 ### **Credential Management:**
 - **Password:** 8+ characters for login authentication
-- **Passcode:** 6-digit security code (set during registration)
-- **Transaction PIN:** 4-digit code for financial operations (set during onboarding)
-
-### **Token Format:**
-```
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
-
-### **Session Management:**
-- User session is cached on backend for performance
-- Token automatically refreshed on successful API calls
-- Logout by deleting token from device storage
+- **Passcode:** 6-digit security code for app access
+- **Transaction PIN:** 4-digit code for financial operations (set after wallet creation)
 
 ---
 
@@ -558,48 +551,41 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ### **Registration States:**
 ```
-1. Email Submitted → PENDING (OTP sent, no account)
-2. OTP Verified → PENDING (verified but no account)
-3. Passcode Set → PENDING (data collected, no account)
-4. Identity Verified → PENDING (BVN/DOB collected, no account)
-5. Phone Verified → PENDING (phone verified, no account)
-6. Username Set → ACTIVE (account created with all data)
-7. Transaction PIN Set → ACTIVE (financial security enabled)
-8. Profile Completed → ACTIVE (all info stored, ready for wallet)
-9. Wallet Created → ACTIVE (full financial access)
+1. Email OTP Sent → SESSION_CREATED (has session_id)
+2. Email Verified → EMAIL_VERIFIED (session updated)
+3. Phone OTP Sent → PHONE_OTP_SENT (phone added to session)
+4. Phone Verified → PHONE_VERIFIED (session updated)
+5. Username Available → USERNAME_SET (session updated)
+6. Account Created → ACCOUNT_ACTIVE (user created with JWT token)
+7. Passcode Set → PASSCODE_SET (security enabled)
+8. Profile Completed → PROFILE_COMPLETE (ready for wallet)
+9. Wallet Created → FULL_ACCESS (complete financial access)
 ```
 
-### **Account Levels:**
-- **KYC Level:** LEVEL_1 (default) → LEVEL_2 → LEVEL_3
-- **Account Tier:** TIER_1 (default) → TIER_2 → TIER_3
-- **Status:** PENDING → ACTIVE
+### **Key Differences from Old Flow:**
+- **Session-based**: All data linked via session ID until account creation
+- **Verification first**: Email and phone verified before account exists
+- **Single creation point**: Account created only in Step 6 with all verified data
+- **Better security**: Prevents partial registrations and race conditions
 
 ---
 
 ## Error Handling Guide
 
-### **Common Error Scenarios:**
+### **Session Errors:**
+- **Session Expired:** Restart registration from Step 1
+- **Invalid Session:** Show error and restart registration
+- **Wrong Step:** Guide user to correct step in sequence
 
-**Network Errors:**
-- Handle timeout errors gracefully
-- Show retry options for failed requests
-- Display offline state when network unavailable
-
-**Validation Errors:**
+### **Validation Errors:**
 - **Invalid Email:** Show proper email format message
 - **Weak Password:** Display password requirements (8+ characters)
 - **Invalid Passcode:** Show passcode format error (must be 6 digits)
 - **Invalid OTP:** Clear OTP input and show error
 - **Expired OTP:** Show resend option
+- **Username Taken:** Suggest alternatives
 
-**Server Errors:**
-- **400 Bad Request:** Show specific validation messages
-- **401 Unauthorized:** Redirect to login screen
-- **500 Server Error:** Show "try again later" message
-- **502 Service Unavailable:** Show service maintenance message
-
-### **Error Response Format:**
-All error responses follow this structure:
+### **Common Error Response Format:**
 ```json
 {
   "success": false,
@@ -613,9 +599,11 @@ All error responses follow this structure:
 ## Timing & Performance
 
 ### **Expected Response Times:**
-- **Email Registration:** 1-3 seconds
-- **OTP Verification:** 2-5 seconds
-- **Profile Update:** 1-2 seconds  
+- **Email/Phone OTP:** 1-3 seconds
+- **OTP Verification:** 1-2 seconds
+- **Username Check:** 1-2 seconds
+- **Account Creation:** 2-3 seconds
+- **Profile Update:** 1-2 seconds
 - **Wallet Creation:** 5-10 seconds (external banking API)
 
 ### **Timeout Recommendations:**
@@ -625,61 +613,66 @@ All error responses follow this structure:
 
 ---
 
-## Additional Authentication Endpoints
+## Mobile App Implementation Guide
 
-### **Password Reset Flow:**
+### **Step-by-Step Implementation:**
 
-**1. Request Reset OTP:**
+1. **Email Verification Screen:**
+   - Email input → Send OTP → Store session_id
+   - OTP input → Verify → Store verified status
+
+2. **Phone Verification Screen:**
+   - Phone input → Send OTP (with session_id)
+   - OTP input → Verify → Update session
+
+3. **Username Screen:**
+   - Username input → Check availability (with session_id)
+   - Show availability status
+
+4. **Password Screen:**
+   - Password input → Create account (with session_id)
+   - Store JWT token securely
+
+5. **Passcode Screen:**
+   - 6-digit passcode input → Set passcode (with JWT)
+
+6. **Profile Screen:**
+   - Multi-step form → Update profile (with JWT)
+   - Check readiness before wallet creation
+
+7. **Wallet Screen:**
+   - Check readiness → Create wallet button (empty request body)
+   - Show wallet details after successful creation
+
+### **Data Flow Management:**
+```javascript
+// Example state management
+const registrationState = {
+  sessionId: null,          // From Step 1
+  email: null,              // From Step 1
+  emailVerified: false,     // From Step 2
+  phone: null,              // From Step 3
+  phoneVerified: false,     // From Step 4
+  username: null,           // From Step 5
+  accountCreated: false,    // From Step 6
+  accessToken: null,        // From Step 6
+  passcodeSet: false,       // From Step 7
+  profileComplete: false,   // From Step 8
+  walletCreated: false      // From Step 10
+};
 ```
-POST /api/v1/auth/send-reset-password-otp
-Body: {"email": "user@example.com"}
-```
-
-**2. Verify Reset OTP:**
-```
-POST /api/v1/auth/verify-reset-password-otp  
-Body: {"email": "user@example.com", "otp": "123456"}
-```
-
-**3. Reset Password:**
-```
-POST /api/v1/auth/reset-password
-Body: {"email": "user@example.com", "new_password": "newPassword123", "otp": "123456"}
-```
-
-### **Login Endpoint:**
-```
-POST /api/v1/auth/login
-Body: {"username": "user@example.com", "password": "userPassword"}
-```
-
----
-
-## Mobile App Considerations
-
-### **Data Storage:**
-- Store access token securely (Keychain/Keystore)
-- Cache user data for offline access
-- Store wallet information locally after creation
-
-### **User Experience:**
-- Auto-focus next OTP input field
-- Show password strength indicator
-- Implement auto-resend OTP countdown
-- Display clear loading states during API calls
 
 ### **Validation Requirements:**
 - **Email:** Valid email format
-- **Password:** Minimum 8 characters (backend enforced)
-- **OTP:** Exactly 5 digits (email verification only)
+- **Phone:** E.164 format (+CountryCodeNumber)
+- **OTP:** Exactly 5 digits (numeric only)
+- **Username:** 3-20 characters, alphanumeric + underscore
+- **Password:** Minimum 8 characters
 - **Passcode:** Exactly 6 digits (numeric only)
 - **BVN:** Exactly 11 digits (numeric only)
 - **Date of Birth:** YYYY-MM-DD format
-- **Phone Number:** International format (+CountryCodeNumber)
-- **Username:** 3-20 characters, alphanumeric + underscore
-- **Transaction PIN:** Exactly 4 digits (0000-9999)
-- **Gender:** "male" or "female" (for profile completion)
-- **Names:** Required for profile completion (first_name, last_name, middle_name optional)
+- **Gender:** "male" or "female"
+- **Names:** Required for wallet creation (first_name, last_name)
 
 ---
 
@@ -691,8 +684,8 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 - **Production:** `https://api.dove.com`
 
 ### **Feature Flags:**
-- **Development Mode:** OTP returned in registration response
-- **Production Mode:** OTP only sent via email
+- **Development Mode:** OTP returned in API responses for testing
+- **Production Mode:** OTP only sent via email/SMS
 
 ---
 
@@ -700,61 +693,29 @@ Body: {"username": "user@example.com", "password": "userPassword"}
 
 ### **Before Development:**
 - [ ] Confirm API base URL for your environment
-- [ ] Set up secure token storage
-- [ ] Plan error handling strategy
-- [ ] Design loading and success states
+- [ ] Set up secure token storage (Keychain/Keystore)
+- [ ] Plan session state management
+- [ ] Design error handling strategy
+- [ ] Plan loading and success states
 
 ### **During Development:**
-- [ ] Test all error scenarios
-- [ ] Implement proper loading states
-- [ ] Add input validation for all fields (email, password, passcode, username, phone, BVN, names, dates)
+- [ ] Implement session ID tracking across steps
+- [ ] Test all error scenarios and session expiration
+- [ ] Implement proper loading states for each step
+- [ ] Add input validation for all fields
 - [ ] Test network timeout handling
-- [ ] Test phone number formatting and validation
-- [ ] Implement BVN input validation (11 digits)
-- [ ] Implement date picker for date of birth
-- [ ] Implement transaction PIN input (4 digits, numeric keypad)
-- [ ] Understand profile completion requirement for wallet creation
+- [ ] Implement step-by-step navigation
+- [ ] Add progress indicators
+- [ ] Test wallet readiness checking
 
 ### **Before Release:**
+- [ ] Test complete registration flow end-to-end
 - [ ] Test with production API
-- [ ] Verify token security
-- [ ] Test registration flow end-to-end
+- [ ] Verify secure token storage
+- [ ] Test session expiration scenarios
 - [ ] Validate error message display
+- [ ] Test wallet creation with complete profile
 
 ---
 
-## Development vs Production
-
-### **Development Features:**
-- OTP visible in API response for testing
-- Detailed error messages
-- Shorter token expiration for testing
-
-### **Production Features:**  
-- OTP only sent via email
-- Generic error messages for security
-- Standard token expiration (60 minutes)
-
----
-
-## Profile-Wallet Creation Guide
-
-### **Wallet Creation Process:**
-
-**Single Path (Simplified)**
-```
-Step 8: POST /user/update-profile → Complete Profile (All Info Stored)
-Step 9: POST /kyc/create_nuban → Wallet Created (Uses Stored Profile Data)
-```
-
-### **Important Frontend Considerations:**
-- **Profile completion required:** User must complete Step 8 before wallet creation
-- **All fields required:** BVN, personal info, and address all needed for 9PSB
-- **Clear progression:** Show users what step they're on in the registration flow
-- **Validation feedback:** Provide immediate feedback on BVN format, date format, etc.
-- **Secure BVN handling:** BVN is encrypted before storage for security
-- **One-time wallet creation:** Once wallet is created, user has full access
-
----
-
-This guide provides all the API information needed to implement the registration flow with enhanced security (password + passcode + transaction PIN) and clear virtual account creation options. The backend handles all complex business logic, security, and integrations - focus on creating a smooth user experience!
+This new registration flow provides better security, clearer user experience, and more reliable account creation. The session-based approach ensures all verification happens before account creation, preventing incomplete registrations and improving data integrity.
