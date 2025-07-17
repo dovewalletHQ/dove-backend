@@ -13,11 +13,18 @@ This guide provides the essential API information needed to implement the new si
 1. Email Verification → 2. Phone Verification → 3. Username Creation → 4. Password & Account Creation → 5. Passcode Setup → 6. Profile Completion → 7. Wallet Creation
 ```
 
-### Key Changes:
+### Alternative: Integrated Profile + Wallet Flow:
+```
+1-5. Same as above → 6. Profile Completion with Wallet Creation (Single API Call)
+```
+
+### Key Features:
 - **Session-based security**: All steps linked via unique session ID
 - **Verification before account creation**: Email and phone verified before creating account
 - **Sequential validation**: Each step validates previous steps are completed
 - **Single account creation point**: Account created only after all verifications
+- **Integrated wallet creation**: Profile update can create wallet in single API call
+- **Flexible flow**: Support for both integrated and separate wallet creation approaches
 
 ### API Endpoints Summary:
 ```
@@ -29,8 +36,9 @@ POST /api/v1/auth/check-username          - Check username availability (Step 5)
 POST /api/v1/auth/create-account          - Create account with password (Step 6)
 POST /api/v1/auth/set-passcode            - Set 6-digit passcode (Step 7)
 POST /api/v1/user/update-profile          - Complete profile information (Step 8)
-GET  /api/v1/wallet/readiness-check       - Check if ready for wallet creation
-POST /api/v1/wallet/create_wallet         - Create wallet (no request body needed)
+                                           - Can create wallet with create_wallet: true
+GET  /api/v1/wallet/readiness-check       - Check if ready for wallet creation (Optional)
+POST /api/v1/wallet/create_wallet         - Create wallet separately (Alternative)
 ```
 
 ### **Flow Separation:**
@@ -44,9 +52,10 @@ POST /api/v1/wallet/create_wallet         - Create wallet (no request body neede
 - Username validation → Account creation with password
 - User receives authentication token after account creation
 
-**Profile & Wallet Flow** (Steps 7-9):
-- Passcode setup → Profile completion → Wallet creation
+**Profile & Wallet Flow** (Steps 7-8):
+- Passcode setup → Profile completion with optional wallet creation
 - Requires authentication token from Step 6
+- **Integrated approach**: Profile update can create wallet in single call
 
 ---
 
@@ -376,11 +385,12 @@ Content-Type: application/json
   "city": "Lagos",
   "state": "Lagos",
   "zip": "100001",
-  "country_name": "Nigeria"
+  "country_name": "Nigeria",
+  "create_wallet": false
 }
 ```
 
-**Success Response (200):**
+**Success Response (200) - Profile Updated Only:**
 ```json
 {
   "success": true,
@@ -392,11 +402,32 @@ Content-Type: application/json
 }
 ```
 
+**Success Response (200) - Profile Updated with Wallet Created:**
+```json
+{
+  "success": true,
+  "message": "Profile updated successfully and wallet created",
+  "responseCode": "200",
+  "data": {
+    "id": "user_id_string",
+    "wallet": {
+      "accountNumber": "2234567890",
+      "fullName": "John William Doe",
+      "customerID": "CUST123456",
+      "bankName": "9 PAYMENT SERVICE BANK"
+    }
+  }
+}
+```
+
 **Error Responses:**
 - **401:** `{"success": false, "message": "Unauthorized", "responseCode": "401"}`
 - **400:** `{"success": false, "message": "At least one field must be provided for update", "responseCode": "400"}`
 - **400:** `{"success": false, "message": "Invalid date format. Use YYYY-MM-DD", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "You already have a wallet created", "responseCode": "400"}`
+- **400:** `{"success": false, "message": "Please complete your profile first before creating a wallet. Missing: first_name, BVN", "responseCode": "400"}`
 - **500:** `{"success": false, "message": "Failed to update profile", "responseCode": "500"}`
+- **500:** `{"success": false, "message": "Failed to create wallet", "responseCode": "500"}`
 
 **Notes:**
 - **All fields required for wallet creation**: Complete profile needed before wallet
@@ -408,6 +439,76 @@ Content-Type: application/json
 - **Date format**: YYYY-MM-DD required
 - **Phone storage**: Saved in both user.phone and kyc.phone_2
 - **Country default**: Automatically set to Nigeria if not provided
+- **Wallet creation integration**: Set `create_wallet: true` to create wallet after profile update
+- **Wallet creation validation**: Automatically checks profile completeness before creating wallet
+- **Single API call**: Can update profile and create wallet in one request when ready
+
+---
+
+### Step 8A: Integrated Profile Update with Wallet Creation
+**Endpoint:** `POST /api/v1/user/update-profile`
+
+**Purpose:** Complete user profile and optionally create wallet in a single API call
+
+**Headers Required:**
+```
+Authorization: Bearer YOUR_ACCESS_TOKEN
+Content-Type: application/json
+```
+
+**Request (with wallet creation):**
+```json
+{
+  "first_name": "John",
+  "middle_name": "William",
+  "last_name": "Doe",
+  "phone": "+2348123456789",
+  "gender": "male",
+  "date_of_birth": "1990-01-15",
+  "bvn": "12345678901",
+  "address_line_1": "123 Main Street",
+  "address_line_2": "Apartment 4B",
+  "city": "Lagos",
+  "state": "Lagos",
+  "zip": "100001",
+  "country_name": "Nigeria",
+  "create_wallet": true
+}
+```
+
+**Success Response (200) - Profile and Wallet Created:**
+```json
+{
+  "success": true,
+  "message": "Profile updated successfully and wallet created",
+  "responseCode": "200",
+  "data": {
+    "id": "user_id_string",
+    "wallet": {
+      "accountNumber": "2234567890",
+      "fullName": "John William Doe",
+      "customerID": "CUST123456",
+      "bankName": "9 PAYMENT SERVICE BANK"
+    }
+  }
+}
+```
+
+**Error Response (400) - Profile Incomplete:**
+```json
+{
+  "success": false,
+  "message": "Please complete your profile first before creating a wallet. Missing: first_name, BVN",
+  "responseCode": "400"
+}
+```
+
+**Notes:**
+- **Single API call**: Combines profile completion and wallet creation
+- **Automatic validation**: Checks profile completeness before attempting wallet creation
+- **Seamless experience**: User gets wallet immediately after completing profile
+- **Fallback**: If `create_wallet: false` or omitted, works like regular profile update
+- **Error handling**: Clear indication of missing required fields
 
 ---
 
@@ -636,11 +737,12 @@ Content-Type: application/json
 5. **Passcode Screen:**
    - 6-digit passcode input → Set passcode (with JWT)
 
-6. **Profile Screen:**
-   - Multi-step form → Update profile (with JWT)
-   - Check readiness before wallet creation
+6. **Profile Screen (Integrated Approach):**
+   - Multi-step form → Update profile with `create_wallet: true` (with JWT)
+   - Show wallet details immediately after successful profile completion
+   - Handle wallet creation errors gracefully
 
-7. **Wallet Screen:**
+7. **Alternative: Separate Wallet Screen:**
    - Check readiness → Create wallet button (empty request body)
    - Show wallet details after successful creation
 
@@ -658,7 +760,8 @@ const registrationState = {
   accessToken: null,        // From Step 6
   passcodeSet: false,       // From Step 7
   profileComplete: false,   // From Step 8
-  walletCreated: false      // From Step 10
+  walletCreated: false,     // From Step 8A (integrated) or Step 10 (separate)
+  walletData: null          // Store wallet information
 };
 ```
 
